@@ -2,7 +2,6 @@ import streamlit as st
 import sqlite3
 import os
 import hashlib
-import random
 from datetime import datetime
 
 # -------------------------
@@ -40,7 +39,7 @@ c.execute("""CREATE TABLE IF NOT EXISTS logs (
 conn.commit()
 
 # -------------------------
-# HASH
+# PASSWORD HASH
 # -------------------------
 def hash_password(p):
     return hashlib.sha256(p.encode()).hexdigest()
@@ -50,9 +49,9 @@ def hash_password(p):
 # -------------------------
 def create_users():
     users = [
-        ("admin", "Kiruvaran@1993", "admin"),
-        ("staff", "staff2026@", "staff"),
-        ("cdo", "cdo2026@", "cdo")
+        ("admin", "alayadi2026", "admin"),
+        ("staff", "staff123", "staff"),
+        ("cdo", "cdo123", "cdo")
     ]
 
     for u in users:
@@ -65,35 +64,20 @@ def create_users():
 create_users()
 
 # -------------------------
-# LOGIN + OTP
+# LOGIN
 # -------------------------
 def login():
-    st.title("🔐 Secure Login")
+    st.title("🔐 Alayadivembu M.P.C.S Ltd Login")
 
-    user = st.text_input("Username")
-    pwd = st.text_input("Password", type="password")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
     if st.button("Login"):
         c.execute("SELECT * FROM users WHERE username=? AND password=?",
-                  (user, hash_password(pwd)))
-        result = c.fetchone()
+                  (username, hash_password(password)))
+        user = c.fetchone()
 
-        if result:
-            otp = str(random.randint(100000, 999999))
-            st.session_state["otp"] = otp
-            st.session_state["temp_user"] = result
-
-        else:
-            st.error("Invalid login")
-
-def verify_otp():
-    st.subheader("Enter OTP")
-    user_otp = st.text_input("OTP")
-
-    if st.button("Verify"):
-        if user_otp == st.session_state.get("otp"):
-            user = st.session_state["temp_user"]
-
+        if user:
             st.session_state["user"] = user[0]
             st.session_state["role"] = user[2]
             st.session_state["logged"] = True
@@ -102,21 +86,19 @@ def verify_otp():
                       (user[0], str(datetime.now())))
             conn.commit()
 
-            st.success("Login Success ✅")
+            st.success("Login Successful ✅")
+            st.rerun()
         else:
-            st.error("Wrong OTP")
+            st.error("Invalid Username or Password")
 
 # -------------------------
-# SESSION
+# SESSION CONTROL
 # -------------------------
 if "logged" not in st.session_state:
     st.session_state["logged"] = False
 
 if not st.session_state["logged"]:
-    if "otp" not in st.session_state:
-        login()
-    else:
-        verify_otp()
+    login()
     st.stop()
 
 # -------------------------
@@ -124,7 +106,7 @@ if not st.session_state["logged"]:
 # -------------------------
 st.markdown("""
 <h1 style='text-align:center;color:#003366;'>
-Alayadivembu M.P.C.S Ltd Accounts
+Alayadivembu M.P.C.S Ltd Accounts Portal
 </h1>
 """, unsafe_allow_html=True)
 
@@ -133,10 +115,10 @@ st.sidebar.write(f"🔑 Role: {st.session_state['role']}")
 
 if st.sidebar.button("Logout"):
     st.session_state.clear()
-    st.experimental_rerun()
+    st.rerun()
 
 # -------------------------
-# MONTH DETECT
+# MONTH DETECTION
 # -------------------------
 months = ["January","February","March","April","May","June",
           "July","August","September","October","November","December"]
@@ -148,7 +130,7 @@ def detect_month(name):
     return "Unknown"
 
 # -------------------------
-# ADMIN PANEL
+# ADMIN - ADD USER
 # -------------------------
 if st.session_state["role"] == "admin":
     st.sidebar.subheader("➕ Add User")
@@ -157,19 +139,19 @@ if st.session_state["role"] == "admin":
     new_pass = st.sidebar.text_input("Password", type="password")
     role = st.sidebar.selectbox("Role", ["admin","staff","cdo"])
 
-    if st.sidebar.button("Create"):
+    if st.sidebar.button("Create User"):
         c.execute("INSERT INTO users VALUES (?,?,?)",
                   (new_user, hash_password(new_pass), role))
         conn.commit()
-        st.sidebar.success("User Added")
+        st.sidebar.success("User Added ✅")
 
 # -------------------------
-# UPLOAD (Admin + Staff)
+# UPLOAD SECTION
 # -------------------------
 if st.session_state["role"] in ["admin", "staff"]:
-    st.header("📤 Upload PDF")
+    st.header("📤 Upload Monthly PDF")
 
-    file = st.file_uploader("Upload", type=["pdf"])
+    file = st.file_uploader("Upload PDF", type=["pdf"])
 
     if file:
         path = os.path.join(UPLOAD_FOLDER, file.name)
@@ -183,15 +165,15 @@ if st.session_state["role"] in ["admin", "staff"]:
                   (file.name, month, st.session_state["user"]))
         conn.commit()
 
-        st.success(f"Uploaded to {month}")
+        st.success(f"Uploaded Successfully to {month}")
 
 # -------------------------
 # SEARCH
 # -------------------------
-search = st.text_input("🔍 Search")
+search = st.text_input("🔍 Search Files")
 
 # -------------------------
-# VIEW (All roles)
+# DISPLAY FILES
 # -------------------------
 st.header("📂 Monthly Reports")
 
@@ -202,14 +184,15 @@ for i, month in enumerate(months):
         with st.expander(month):
 
             if search:
-                c.execute("SELECT * FROM files WHERE filename LIKE ?", (f"%{search}%",))
+                c.execute("SELECT * FROM files WHERE filename LIKE ?",
+                          (f"%{search}%",))
             else:
                 c.execute("SELECT * FROM files WHERE month=?", (month,))
 
-            data = c.fetchall()
+            files = c.fetchall()
 
-            if data:
-                for fdata in data:
+            if files:
+                for fdata in files:
                     file_path = os.path.join(UPLOAD_FOLDER, fdata[0])
 
                     st.write(fdata[0])
@@ -223,12 +206,12 @@ for i, month in enumerate(months):
                 st.info("No files")
 
 # -------------------------
-# ADMIN LOGS
+# LOGIN LOGS (ADMIN ONLY)
 # -------------------------
 if st.session_state["role"] == "admin":
     st.header("🧾 Login Logs")
 
-    c.execute("SELECT * FROM logs")
+    c.execute("SELECT * FROM logs ORDER BY rowid DESC")
     logs = c.fetchall()
 
     for log in logs:
@@ -237,4 +220,4 @@ if st.session_state["role"] == "admin":
 # -------------------------
 # FOOTER
 # -------------------------
-st.caption("© Alayadivembu M.P.C.S Ltd - Secure Portal")
+st.caption("© Alayadivembu M.P.C.S Ltd - Secure Document Portal")
