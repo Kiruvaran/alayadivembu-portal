@@ -41,25 +41,6 @@ conn.commit()
 # -------------------------
 def hash_password(p):
     return hashlib.sha256(p.encode()).hexdigest()
-
-# -------------------------
-# DEFAULT USERS
-# -------------------------
-def create_users():
-    users = [
-        ("admin", "admin123", "admin"),
-        ("staff", "staff123", "staff"),
-        ("cdo", "cdo123", "cdo")
-    ]
-    for u in users:
-        c.execute("SELECT * FROM users WHERE username=?", (u[0],))
-        if not c.fetchone():
-            c.execute("INSERT INTO users VALUES (?,?,?)",
-                      (u[0], hash_password(u[1]), u[2]))
-    conn.commit()
-
-create_users()
-
 # -------------------------
 # MONTHS
 # -------------------------
@@ -90,29 +71,6 @@ def show_pdf(file_path):
     <iframe src="data:application/pdf;base64,{base64_pdf}"
     width="100%" height="700px"></iframe>
     """, unsafe_allow_html=True)
-
-# -------------------------
-# LOGIN
-# -------------------------
-def login():
-    st.title("🔐 Alayadivembu M.P.C.S Ltd")
-
-    user = st.text_input("Username")
-    pwd = st.text_input("Password", type="password")
-
-    if st.button("Login"):
-        c.execute("SELECT * FROM users WHERE username=? AND password=?",
-                  (user, hash_password(pwd)))
-        res = c.fetchone()
-
-        if res:
-            st.session_state["user"] = res[0]
-            st.session_state["role"] = res[2]
-            st.session_state["logged"] = True
-            st.rerun()
-        else:
-            st.error("Invalid Login")
-
 # -------------------------
 # SESSION
 # -------------------------
