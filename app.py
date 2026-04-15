@@ -1,223 +1,273 @@
 import streamlit as st
-import sqlite3
-import os
-import hashlib
-from datetime import datetime
+import pandas as pd
+
+# PDF
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import landscape, legal
+from reportlab.lib.styles import getSampleStyleSheet
 
 # -------------------------
-# CONFIG
+# PAGE CONFIG
 # -------------------------
-st.set_page_config(page_title="Alayadivembu M.P.C.S Ltd", layout="wide")
-
-UPLOAD_FOLDER = "uploads"
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-
-# -------------------------
-# DATABASE
-# -------------------------
-conn = sqlite3.connect("portal.db", check_same_thread=False)
-c = conn.cursor()
-
-c.execute("""CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY,
-    password TEXT,
-    role TEXT
-)""")
-
-c.execute("""CREATE TABLE IF NOT EXISTS files (
-    filename TEXT,
-    month TEXT,
-    uploaded_by TEXT
-)""")
-
-c.execute("""CREATE TABLE IF NOT EXISTS logs (
-    username TEXT,
-    time TEXT
-)""")
-
-conn.commit()
+st.set_page_config(
+    page_title="Alayadivembu Payroll ERP",
+    layout="wide"
+)
 
 # -------------------------
-# PASSWORD HASH
-# -------------------------
-def hash_password(p):
-    return hashlib.sha256(p.encode()).hexdigest()
-
-# -------------------------
-# DEFAULT USERS
-# -------------------------
-def create_users():
-    users = [
-        ("admin", "alayadi2026", "admin"),
-        ("staff", "staff123", "staff"),
-        ("cdo", "cdo123", "cdo")
-    ]
-
-    for u in users:
-        c.execute("SELECT * FROM users WHERE username=?", (u[0],))
-        if not c.fetchone():
-            c.execute("INSERT INTO users VALUES (?,?,?)",
-                      (u[0], hash_password(u[1]), u[2]))
-    conn.commit()
-
-create_users()
-
-# -------------------------
-# LOGIN
-# -------------------------
-def login():
-    st.title("🔐 Alayadivembu M.P.C.S Ltd Login")
-
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-
-    if st.button("Login"):
-        c.execute("SELECT * FROM users WHERE username=? AND password=?",
-                  (username, hash_password(password)))
-        user = c.fetchone()
-
-        if user:
-            st.session_state["user"] = user[0]
-            st.session_state["role"] = user[2]
-            st.session_state["logged"] = True
-
-            c.execute("INSERT INTO logs VALUES (?,?)",
-                      (user[0], str(datetime.now())))
-            conn.commit()
-
-            st.success("Login Successful ✅")
-            st.rerun()
-        else:
-            st.error("Invalid Username or Password")
-
-# -------------------------
-# SESSION CONTROL
-# -------------------------
-if "logged" not in st.session_state:
-    st.session_state["logged"] = False
-
-if not st.session_state["logged"]:
-    login()
-    st.stop()
-
-# -------------------------
-# HEADER
+# STYLE
 # -------------------------
 st.markdown("""
-<h1 style='text-align:center;color:#003366;'>
-Alayadivembu M.P.C.S Ltd Accounts Portal
-</h1>
+<style>
+body {background-color:#f4f7fb;}
+h1,h2,h3 {color:#0d47a1;}
+
+.stButton>button {
+    background-color:#0d47a1;
+    color:white;
+    border-radius:8px;
+}
+</style>
 """, unsafe_allow_html=True)
 
-st.sidebar.write(f"👤 {st.session_state['user']}")
-st.sidebar.write(f"🔑 Role: {st.session_state['role']}")
+# -------------------------
+# SESSION
+# -------------------------
+if "employees" not in st.session_state:
+    st.session_state["employees"] = []
 
-if st.sidebar.button("Logout"):
-    st.session_state.clear()
-    st.rerun()
+if "attendance" not in st.session_state:
+    st.session_state["attendance"] = []
 
 # -------------------------
-# MONTH DETECTION
+# PDF FUNCTION
 # -------------------------
-months = ["January","February","March","April","May","June",
-          "July","August","September","October","November","December"]
+def generate_pdf(data):
 
-def detect_month(name):
-    for m in months:
-        if m.lower() in name.lower():
-            return m
-    return "Unknown"
+    file_path = "paysheet.pdf"
 
-# -------------------------
-# ADMIN - ADD USER
-# -------------------------
-if st.session_state["role"] == "admin":
-    st.sidebar.subheader("➕ Add User")
+    doc = SimpleDocTemplate(
+        file_path,
+        pagesize=landscape(legal)
+    )
 
-    new_user = st.sidebar.text_input("Username")
-    new_pass = st.sidebar.text_input("Password", type="password")
-    role = st.sidebar.selectbox("Role", ["admin","staff","cdo"])
+    styles = getSampleStyleSheet()
+    elements = []
 
-    if st.sidebar.button("Create User"):
-        c.execute("INSERT INTO users VALUES (?,?,?)",
-                  (new_user, hash_password(new_pass), role))
-        conn.commit()
-        st.sidebar.success("User Added ✅")
+    # Title
+    elements.append(Paragraph(
+        "<b>ALAYADIVEMBU M.P.C.S LTD - PAY SHEET</b>",
+        styles["Title"]
+    ))
+    elements.append(Spacer(1, 20))
 
-# -------------------------
-# UPLOAD SECTION
-# -------------------------
-if st.session_state["role"] in ["admin", "staff"]:
-    st.header("📤 Upload Monthly PDF")
+    # Table
+    table_data = [list(data.columns)] + data.values.tolist()
 
-    file = st.file_uploader("Upload PDF", type=["pdf"])
+    table = Table(table_data)
 
-    if file:
-        path = os.path.join(UPLOAD_FOLDER, file.name)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.darkblue),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("GRID", (0,0), (-1,-1), 1, colors.black),
+        ("ALIGN", (0,0), (-1,-1), "CENTER"),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold")
+    ]))
 
-        with open(path, "wb") as f:
-            f.write(file.getbuffer())
+    elements.append(table)
+    elements.append(Spacer(1, 30))
 
-        month = detect_month(file.name)
+    elements.append(Paragraph("Prepared By: ____________________", styles["Normal"]))
+    elements.append(Paragraph("Approved By: ____________________", styles["Normal"]))
 
-        c.execute("INSERT INTO files VALUES (?,?,?)",
-                  (file.name, month, st.session_state["user"]))
-        conn.commit()
+    doc.build(elements)
 
-        st.success(f"Uploaded Successfully to {month}")
+    return file_path
 
 # -------------------------
-# SEARCH
+# MENU
 # -------------------------
-search = st.text_input("🔍 Search Files")
+st.sidebar.title("🏢 Payroll ERP")
+menu = st.sidebar.radio("Menu", [
+    "Dashboard",
+    "Add Employee",
+    "Attendance Payroll",
+    "Pay Sheet",
+    "Reports"
+])
 
-# -------------------------
-# DISPLAY FILES
-# -------------------------
-st.header("📂 Monthly Reports")
+# ===================================================
+# DASHBOARD
+# ===================================================
+if menu == "Dashboard":
 
-cols = st.columns(3)
+    st.title("📊 Dashboard")
 
-for i, month in enumerate(months):
-    with cols[i % 3]:
-        with st.expander(month):
+    df = pd.DataFrame(st.session_state["employees"])
 
-            if search:
-                c.execute("SELECT * FROM files WHERE filename LIKE ?",
-                          (f"%{search}%",))
-            else:
-                c.execute("SELECT * FROM files WHERE month=?", (month,))
+    c1, c2, c3 = st.columns(3)
 
-            files = c.fetchall()
+    c1.metric("Employees", len(df))
+    c2.metric("Total Salary", int(df["Total Salary"].sum()) if not df.empty else 0)
+    c3.metric("Net Salary", int(df["Net Salary"].sum()) if not df.empty else 0)
 
-            if files:
-                for fdata in files:
-                    file_path = os.path.join(UPLOAD_FOLDER, fdata[0])
+    if not df.empty:
+        st.dataframe(df)
 
-                    st.write(fdata[0])
+# ===================================================
+# ADD EMPLOYEE
+# ===================================================
+if menu == "Add Employee":
 
-                    with open(file_path, "rb") as f:
-                        st.download_button("⬇️ Download", f, fdata[0])
+    st.title("➕ Add Employee")
 
-                    with open(file_path, "rb") as f:
-                        st.download_button("📄 View", f, fdata[0])
-            else:
-                st.info("No files")
+    col1, col2 = st.columns(2)
 
-# -------------------------
-# LOGIN LOGS (ADMIN ONLY)
-# -------------------------
-if st.session_state["role"] == "admin":
-    st.header("🧾 Login Logs")
+    with col1:
+        name = st.text_input("Name")
+        designation = st.text_input("Designation")
+        department = st.selectbox("Department", [
+            "Head Office",
+            "Fuel Filling Station",
+            "Rural Bank"
+        ])
 
-    c.execute("SELECT * FROM logs ORDER BY rowid DESC")
-    logs = c.fetchall()
+    with col2:
+        basic = st.number_input("Basic", 0)
+        increment = st.number_input("Increment", 0)
+        loan = st.number_input("Loan", 0)
+        advance = st.number_input("Advance", 0)
 
-    for log in logs:
-        st.write(log)
+    if st.button("Save Employee"):
 
-# -------------------------
-# FOOTER
-# -------------------------
-st.caption("© Alayadivembu M.P.C.S Ltd - Secure Document Portal")
+        total = basic + increment
+        epf8 = total * 0.08
+        etf3 = basic * 0.03
+        epf12 = basic * 0.12
+        net = total - epf8 - loan - advance
+
+        st.session_state["employees"].append({
+            "Name": name,
+            "Designation": designation,
+            "Department": department,
+            "Basic": basic,
+            "Increment": increment,
+            "Total Salary": total,
+            "EPF 8%": epf8,
+            "ETF 3%": etf3,
+            "EPF 12%": epf12,
+            "Loan": loan,
+            "Advance": advance,
+            "Net Salary": net
+        })
+
+        st.success("Saved ✅")
+
+# ===================================================
+# ATTENDANCE
+# ===================================================
+if menu == "Attendance Payroll":
+
+    st.title("📅 Attendance → Salary")
+
+    staff = st.session_state["employees"]
+
+    if not staff:
+        st.warning("Add employees first")
+    else:
+
+        for i, s in enumerate(staff):
+
+            present = st.number_input(
+                f"{s['Name']} Present Days",
+                0, 30, key=f"a{i}"
+            )
+
+            st.session_state["attendance"].append({
+                "Name": s["Name"],
+                "Basic": s["Basic"],
+                "Increment": s["Increment"],
+                "Loan": s["Loan"],
+                "Advance": s["Advance"],
+                "Present": present
+            })
+
+        if st.button("Generate Payroll"):
+
+            report = []
+
+            for a in st.session_state["attendance"]:
+
+                total = a["Basic"] + a["Increment"]
+                daily = total / 30
+                gross = daily * a["Present"]
+
+                epf8 = gross * 0.08
+                etf3 = a["Basic"] * 0.03
+                epf12 = a["Basic"] * 0.12
+
+                net = gross - epf8 - a["Loan"] - a["Advance"]
+
+                report.append({
+                    "Name": a["Name"],
+                    "Present": a["Present"],
+                    "Gross": round(gross),
+                    "EPF 8%": round(epf8),
+                    "ETF 3%": round(etf3),
+                    "EPF 12%": round(epf12),
+                    "Net": round(net)
+                })
+
+            st.session_state["report"] = pd.DataFrame(report)
+            st.success("Payroll Generated ✅")
+
+# ===================================================
+# PAY SHEET
+# ===================================================
+if menu == "Pay Sheet":
+
+    st.title("📄 Pay Sheet")
+
+    if "report" in st.session_state:
+
+        df = st.session_state["report"]
+
+        st.dataframe(df)
+
+        st.download_button("⬇️ CSV", df.to_csv(index=False))
+
+        if st.button("📄 Generate Legal PDF"):
+
+            path = generate_pdf(df)
+
+            with open(path, "rb") as f:
+                st.download_button("⬇️ Download PDF", f)
+
+    else:
+        st.info("Generate payroll first")
+
+# ===================================================
+# REPORTS
+# ===================================================
+if menu == "Reports":
+
+    st.title("📊 Summary")
+
+    if "report" in st.session_state:
+
+        df = st.session_state["report"]
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric("Salary", int(df["Gross"].sum()))
+        c2.metric("EPF 8%", int(df["EPF 8%"].sum()))
+        c3.metric("ETF 3%", int(df["ETF 3%"].sum()))
+        c4.metric("EPF 12%", int(df["EPF 12%"].sum()))
+
+        total_cost = df["Gross"].sum() + df["ETF 3%"].sum() + df["EPF 12%"].sum()
+
+        st.success(f"TOTAL COST: {int(total_cost):,}")
+
+    else:
+        st.info("No data")
