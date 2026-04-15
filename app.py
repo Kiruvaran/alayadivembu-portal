@@ -17,7 +17,7 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # -------------------------
-# THEME STATE
+# THEME
 # -------------------------
 if "theme" not in st.session_state:
     st.session_state["theme"] = "light"
@@ -31,29 +31,9 @@ def toggle_theme():
 conn = sqlite3.connect("portal.db", check_same_thread=False)
 c = conn.cursor()
 
-c.execute("""CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY,
-    password TEXT,
-    role TEXT
-)""")
-
-c.execute("""CREATE TABLE IF NOT EXISTS files (
-    filename TEXT,
-    month TEXT,
-    uploaded_by TEXT
-)""")
-
-c.execute("""CREATE TABLE IF NOT EXISTS logs (
-    username TEXT,
-    time TEXT
-)""")
-
-c.execute("""CREATE TABLE IF NOT EXISTS audit (
-    username TEXT,
-    filename TEXT,
-    time TEXT
-)""")
-
+c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT)")
+c.execute("CREATE TABLE IF NOT EXISTS files (filename TEXT, month TEXT, uploaded_by TEXT)")
+c.execute("CREATE TABLE IF NOT EXISTS audit (username TEXT, filename TEXT, time TEXT)")
 conn.commit()
 
 # -------------------------
@@ -71,7 +51,6 @@ def create_users():
         ("staff", "staff123", "staff"),
         ("cdo", "cdo123", "cdo")
     ]
-
     for u in users:
         c.execute("SELECT * FROM users WHERE username=?", (u[0],))
         if not c.fetchone():
@@ -94,7 +73,7 @@ def detect_month(name):
     return "Unknown"
 
 # -------------------------
-# PDF THUMBNAIL
+# PDF
 # -------------------------
 def get_pdf_thumbnail(file_path):
     doc = fitz.open(file_path)
@@ -103,9 +82,6 @@ def get_pdf_thumbnail(file_path):
     img = Image.open(io.BytesIO(pix.tobytes("png")))
     return img
 
-# -------------------------
-# PDF VIEWER
-# -------------------------
 def show_pdf(file_path):
     with open(file_path, "rb") as f:
         base64_pdf = base64.b64encode(f.read()).decode("utf-8")
@@ -133,11 +109,6 @@ def login():
             st.session_state["user"] = res[0]
             st.session_state["role"] = res[2]
             st.session_state["logged"] = True
-
-            c.execute("INSERT INTO logs VALUES (?,?)",
-                      (res[0], str(datetime.now())))
-            conn.commit()
-
             st.rerun()
         else:
             st.error("Invalid Login")
@@ -156,7 +127,6 @@ if not st.session_state["logged"]:
 # SIDEBAR
 # -------------------------
 st.sidebar.button("🌗 Toggle Theme", on_click=toggle_theme)
-
 st.sidebar.write(f"👤 {st.session_state['user']}")
 st.sidebar.write(f"🔑 {st.session_state['role']}")
 
@@ -165,66 +135,10 @@ if st.sidebar.button("Logout"):
     st.rerun()
 
 # -------------------------
-# THEME CSS
-# -------------------------
-if st.session_state["theme"] == "light":
-    bg = "#f5f9ff"
-    card = "white"
-    text = "#0a3d62"
-else:
-    bg = "#0f172a"
-    card = "#1e293b"
-    text = "#ffffff"
-
-st.markdown(f"""
-<style>
-.main {{
-    background-color:{bg};
-}}
-
-.title {{
-    text-align:center;
-    font-size:40px;
-    color:{text};
-    font-weight:bold;
-}}
-
-.subtitle {{
-    text-align:center;
-    font-size:18px;
-    color:{text};
-    opacity:0.8;
-}}
-
-.card {{
-    background:{card};
-    padding:15px;
-    border-radius:15px;
-    margin-bottom:10px;
-}}
-
-.footer {{
-    text-align:center;
-    margin-top:40px;
-    font-size:14px;
-    color:{text};
-    opacity:0.6;
-}}
-</style>
-""", unsafe_allow_html=True)
-
-# -------------------------
-# HEADER
-# -------------------------
-st.markdown('<div class="title">Alayadivembu M.P.C.S Ltd</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Secure Document Management Portal</div>', unsafe_allow_html=True)
-
-# -------------------------
-# ADMIN - CREATE USER
+# ADMIN PANEL
 # -------------------------
 if st.session_state["role"] == "admin":
     st.sidebar.subheader("➕ Create User")
-
     nu = st.sidebar.text_input("Username")
     np = st.sidebar.text_input("Password", type="password")
     nr = st.sidebar.selectbox("Role", ["admin","staff","cdo"])
@@ -234,6 +148,11 @@ if st.session_state["role"] == "admin":
                   (nu, hash_password(np), nr))
         conn.commit()
         st.sidebar.success("User Created")
+
+    if st.sidebar.button("📊 View Audit Logs"):
+        logs = c.execute("SELECT * FROM audit ORDER BY time DESC").fetchall()
+        st.write("### Audit Logs")
+        st.table(logs)
 
 # -------------------------
 # UPLOAD
@@ -263,7 +182,7 @@ if st.session_state["role"] in ["admin","staff"]:
 search = st.text_input("🔍 Search Files")
 
 # -------------------------
-# MONTHLY VIEW
+# FILE VIEW
 # -------------------------
 st.subheader("📂 Monthly Reports")
 
@@ -272,11 +191,7 @@ cols = st.columns(3)
 for i, m in enumerate(months):
     with cols[i % 3]:
 
-        st.markdown(f"""
-        <div class="card">
-        <h3>📅 {m}</h3>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"### 📅 {m}")
 
         if search:
             c.execute("SELECT * FROM files WHERE filename LIKE ?", (f"%{search}%",))
@@ -285,7 +200,7 @@ for i, m in enumerate(months):
 
         files = c.fetchall()
 
-        for fdata in files:
+        for idx, fdata in enumerate(files):
             file_path = os.path.join(UPLOAD_FOLDER, fdata[0])
 
             col1, col2 = st.columns([1,2])
@@ -300,7 +215,11 @@ for i, m in enumerate(months):
             with col2:
                 st.write(fdata[0])
 
-                if st.button(f"👁 View", key=fdata[0]):
+                view_key = f"view_{m}_{idx}_{fdata[0]}"
+                download_key = f"down_{m}_{idx}_{fdata[0]}"
+                delete_key = f"del_{m}_{idx}_{fdata[0]}"
+
+                if st.button("👁 View", key=view_key):
                     st.session_state["pdf"] = file_path
 
                     c.execute("INSERT INTO audit VALUES (?,?,?)",
@@ -308,21 +227,32 @@ for i, m in enumerate(months):
                     conn.commit()
 
                 with open(file_path, "rb") as f:
-                    st.download_button("⬇️ Download", f, fdata[0])
+                    st.download_button("⬇️ Download", f, fdata[0], key=download_key)
+
+                if st.session_state["role"] == "admin":
+                    if st.button("🗑️ Delete", key=delete_key):
+                        try:
+                            os.remove(file_path)
+                        except:
+                            pass
+
+                        c.execute("DELETE FROM files WHERE filename=?", (fdata[0],))
+                        conn.commit()
+                        st.warning(f"{fdata[0]} deleted")
+                        st.rerun()
 
 # -------------------------
-# PDF VIEWER
+# PDF VIEW
 # -------------------------
 if "pdf" in st.session_state:
     st.markdown("---")
-    st.subheader("📄 Document Preview")
-    show_pdf(st.session_state["pdf"])
+    with st.expander("📄 Document Preview", expanded=True):
+        show_pdf(st.session_state["pdf"])
 
 # -------------------------
 # FOOTER
 # -------------------------
 st.markdown("""
-<div class="footer">
-    Created by <b>K. Kiruvaran</b>
-</div>
+---
+<center>Created by <b>K. Kiruvaran</b></center>
 """, unsafe_allow_html=True)
